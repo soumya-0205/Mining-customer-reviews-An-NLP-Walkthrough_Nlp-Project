@@ -262,7 +262,13 @@ Price is rare (9% of reviews) but harsh. Fit is mentioned in 63% of reviews and 
 
 `[MIT / Apache-2.0 / etc.]`
 
-## Author
+## Authors
 
-**Soumya**: M.Sc. Data Science & AI, NMIMS Mumbai
-`[LinkedIn / email / portfolio link]`
+| Name | Roll No. |
+|---|---|
+| Soumya | B057 |
+| Harsh Shukla | B040 |
+
+**College:** NMIMS NSOMASA (Nilkamal School of Mathematics, Applied Statistics & Analytics), Mumbai
+**Program:** M.Sc. Data Science, Division B
+
