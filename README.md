@@ -1,21 +1,20 @@
-# Review Text Analytics: Sentiment Classification & Topic Modeling
+# Mining Customer Reviews: Sentiment, Topics & Aspects
 
-Classical NLP pipeline on customer review text, covering **(1) sentiment classification** with a rigorous ablation, significance testing and calibration analysis, and **(2) topic modeling** with coherence-based K selection, NMF vs LDA comparison and stability checks.
+An end-to-end classical NLP study of **22,641 women's clothing reviews**: sentiment classification, topic discovery and aspect-level sentiment, with ablations, significance tests, calibration and error analysis.
 
-> Built with scikit-learn, no deep learning required. The goal is a well-validated, interpretable baseline.
+> **Headline:** A calibrated TF-IDF + Logistic Regression model reaches **94.9% binary accuracy (5-fold CV)** and **89.2 macro-F1** on held-out reviews. Neural baselines did not beat it, and the remaining errors look mostly like label noise (mixed or ambiguous reviews), not model capacity.
 
 ---
 
 ## Highlights
 
-- **Sentiment classification** (binary and 3-class) using TF-IDF + Logistic Regression
-- **Ablation study** across n-gram range, sublinear TF, stopword removal, count vs TF-IDF, character n-grams and class weighting
-- **Statistical comparison** of Logistic Regression vs Naive Bayes: exact McNemar-style sign test + paired bootstrap CI on macro-F1
-- **Probability calibration**: ROC-AUC, PR-AUC, Brier score, ECE, reliability bins, isotonic calibration
-- **Learning curve** to judge whether more data would help
-- **Interpretability**: top positive/negative features with coefficients
-- **Topic modeling**: NMF K-sweep scored by NPMI coherence, NMF vs LDA at K=8
-- **Topic stability**: seed stability and bootstrap stability via best-match Jaccard
+- **3 NLP tasks on one corpus:** sentiment classification (binary and 3-class), topic discovery (NMF vs LDA), aspect sentiment (fabric, fit, color, price, etc.)
+- **7 candidate models** compared on the same split: Majority, Multinomial NB, Complement NB, Linear SVM, Logistic Regression, Word2vec average + LR, MLP on TF-IDF SVD
+- **Ablation:** n-grams, sublinear TF, stop words, counts vs TF-IDF, char n-grams, class weights
+- **Statistical testing:** McNemar test + 1,000-sample paired bootstrap on macro-F1
+- **Calibration:** isotonic calibration cut ECE from 0.058 to 0.007
+- **Learning curve** and **error analysis** (by rating, length, negation, contrast)
+- **Topic validation:** NPMI coherence, LDA comparison, seed and bootstrap stability
 
 ---
 
@@ -25,32 +24,42 @@ Classical NLP pipeline on customer review text, covering **(1) sentiment classif
 .
 ├── data/
 │   └── reviews.csv                  # input data (not included, see Data)
-├── technical_nlp_analysis.py        # sentiment classification + evaluation
-├── topic_model_validation.py        # topic modeling + validation
-├── ablation.json                    # generated: ablation F1 scores
+├── technical_nlp_analysis.py        # sentiment ablation, significance, calibration, learning curve, top features
+├── topic_model_validation.py        # NMF K-sweep, NMF vs LDA, stability checks
+├── ablation.json                    # generated: ablation macro-F1 scores
+├── docs/
+│   └── review_nlp_detailed_deck.pptx  # 31-slide technical walkthrough
 ├── requirements.txt
 └── README.md
 ```
+
+> The model comparison (SVM, Complement NB, Word2vec, MLP), per-class results, error analysis and aspect sentiment appear in the deck. Add those scripts here if they live in separate files.
 
 ---
 
 ## Data
 
-Place your dataset at `data/reviews.csv` with at least these columns:
+Women's clothing e-commerce reviews, expected at `data/reviews.csv`.
 
 | Column | Description |
 |---|---|
-| `Title` | Review title (nulls allowed) |
-| `Review Text` | Review body (rows with null text are dropped) |
+| `Title` | Review title (13% missing) |
+| `Review Text` | Review body (rows with no text are dropped) |
 | `Rating` | Integer star rating, 1 to 5 |
 
-**Preprocessing:** title and body are concatenated into one `text` field.
+**Corpus:** 23,486 rows → **22,641** reviews with text. Mean length 63 words (median 62, max 121), 1.31M tokens, 14,679 distinct words (42% appear only once).
 
-**Labels:**
-- Binary: Rating ≤ 2 → negative, Rating ≥ 4 → positive (3-star reviews excluded)
-- 3-class: ≤ 2 negative, 3 neutral, ≥ 4 positive
+**Labels (from star ratings, no human gold standard):**
 
-Add your dataset source and license here: `[dataset name / link]`.
+| Class | Rating | Reviews |
+|---|---|---|
+| Negative | 1–2 | 2,370 |
+| Neutral | 3 | 2,823 |
+| Positive | 4–5 | 17,448 (77%) |
+
+Binary task = negative vs positive (3-star excluded). Class imbalance is why **macro-F1** is the headline metric.
+
+Add source and license: `[dataset link / license]`
 
 ---
 
@@ -73,123 +82,179 @@ scikit-learn
 scipy
 ```
 
-Python 3.9+ recommended.
+Python 3.9+ recommended. The Word2vec baseline additionally needs `gensim`.
 
 ---
 
 ## Usage
 
-### 1. Sentiment classification & evaluation
-
 ```bash
-python technical_nlp_analysis.py
+python technical_nlp_analysis.py     # sentiment: ablation, McNemar + bootstrap, calibration, learning curve, features
+python topic_model_validation.py     # topics: K-sweep, NMF vs LDA, stability
 ```
-
-Prints the following and writes `ablation.json`:
-- Ablation table (binary macro-F1 | 3-class macro-F1) for each feature/model variant
-- LR vs NB significance test and bootstrap CI
-- AUC, PR-AUC (negative class), Brier score
-- ECE (raw vs isotonic-calibrated) and calibration bins
-- Learning curve across training fractions
-- Top 12 positive and negative features with coefficients
-
-### 2. Topic model validation
-
-```bash
-python topic_model_validation.py
-```
-
-Prints the following:
-- NMF K-sweep (K = 4, 6, 8, 10, 12, 14) with NPMI coherence and reconstruction error
-- NMF vs LDA coherence at K=8, plus LDA top words
-- Seed stability (5 random initializations) and bootstrap stability (4 resamples)
 
 ---
 
 ## Methodology
 
-### Sentiment model
 | Component | Setting |
 |---|---|
-| Split | 80/20 stratified, `random_state=42` |
-| Features | TF-IDF, unigrams + bigrams, `min_df=3`, sublinear TF |
-| Classifier | Logistic Regression, `C=4`, `class_weight='balanced'` |
-| Metric | Macro-F1 (robust to class imbalance) |
+| Split | Stratified 80/20, seed 42 (4,529 test reviews; 3,964 for binary). 5-fold CV for stability |
+| Features | TF-IDF, words + pairs, `min_df=3`, sublinear TF, L2 norm → 45,767 sparse features |
+| Logistic Regression | `C=4`, balanced class weights, `max_iter=2000` |
+| Naive Bayes | `alpha=0.3` (multinomial and complement) |
+| Linear SVM | `C=0.5`, balanced class weights |
+| Word2vec | 100-d, window 5, 10 epochs, trained on training reviews only |
+| NMF | 8 components, `nndsvda` init, seed 0, 400 iterations; 6,000 TF-IDF terms, `min_df=10`, `max_df=0.4` |
+| Metrics | Accuracy, macro-F1, ROC-AUC, average precision, ECE, Brier |
 
-### Topic model
-| Component | Setting |
-|---|---|
-| Features | TF-IDF, English stopwords removed, `min_df=10`, `max_df=0.4`, 6,000 features |
-| Models | NMF (`nndsvda` init) and LDA (batch variational Bayes) |
-| Coherence | NPMI over top-10 words per topic, using document co-occurrence |
-| Stability | Mean best-match Jaccard of top-10 words vs the reference model |
+**Preprocessing is deliberately minimal:** lowercase, words of 2+ characters, stop words kept (removing them cost 2.0 F1), no stemming.
 
 ---
 
 ## Results
 
-Fill in after running the scripts.
+### Model comparison (macro-F1, %)
 
-### Sentiment classification (macro-F1, %)
-
-| Variant | Binary | 3-class |
+| Model | Binary | 3-class |
 |---|---|---|
-| TF-IDF unigram | – | – |
-| **TF-IDF uni+bigram (chosen)** | – | – |
-| TF-IDF uni+bi+trigram | – | – |
-| Counts uni+bigram | – | – |
-| TF-IDF no sublinear | – | – |
-| TF-IDF + stopword removal | – | – |
-| Char n-grams 2–5 | – | – |
-| No class weighting | – | – |
+| **Logistic regression (chosen)** | **89.2** | 65.3 |
+| Linear SVM | 88.8 | 65.3 |
+| Complement NB | 88.3 | **65.6** |
+| MLP on TF-IDF SVD | 86.1 | 62.6 |
+| Word2vec average + LR | 79.2 | 60.5 |
+| Multinomial NB | 71.2 | 46.2 |
+| Majority class | 46.8 | 29.0 |
 
-### Model comparison & calibration
+Logistic regression, Linear SVM and Complement NB are within one point of each other and effectively tied. LR is kept for its calibratable probabilities and readable coefficients.
 
-| Metric | Value |
+### Ablation (binary macro-F1, one change at a time)
+
+| Variant | Macro-F1 |
 |---|---|
-| LR vs NB macro-F1 difference (95% CI) | – |
-| Sign test p-value | – |
-| ROC-AUC | – |
-| PR-AUC (negative class) | – |
-| Brier score | – |
-| ECE raw → isotonic | – → – |
+| No sublinear TF | 89.8 |
+| **Words + pairs (chosen)** | **89.2** |
+| Words + pairs + triples | 89.2 |
+| Raw counts, words + pairs | 88.1 |
+| Stop words removed | 87.2 |
+| Character n-grams | 87.1 |
+| Words only | 87.0 |
+| No class weights | 85.8 |
 
-### Topics
+Word pairs add 2.2 points and class weights add 3.4. Triples and the sublinear switch change little (differences under ~0.5–0.6 are near the noise level on a 3,964-review test set).
 
-| K | NPMI coherence |
+### Is the winner real?
+
+| Comparison | Result |
 |---|---|
-| 4 | – |
-| 6 | – |
-| 8 | – |
-| 10 | – |
-| 12 | – |
-| 14 | – |
+| LR vs Multinomial NB | +18 macro-F1 points, McNemar p = 2e-13, bootstrap 95% CI 15 to 21 |
+| LR vs SVM / Complement NB | < 1 point: treat as tied |
 
-| Model (K=8) | NPMI |
+### Discrimination & per-class performance
+
+- **ROC-AUC 0.977**, average precision for the negative (minority) class **0.870**
+- Binary confusion matrix: 410 TN, 64 FP, 129 FN, 3,361 TP
+- 5-fold CV accuracy: **94.9% ± 0.3**
+
+| Class (3-class LR) | Precision | Recall | F1 | Test reviews |
+|---|---|---|---|---|
+| Negative | 0.572 | 0.601 | 0.586 | 474 |
+| Neutral | 0.413 | 0.469 | 0.439 | 565 |
+| Positive | 0.946 | 0.919 | 0.932 | 3,490 |
+
+Neutral (3-star) is the weak class: those reviews mix praise and complaint.
+
+### Calibration
+
+Raw probabilities are **underconfident** (balanced class weights shift scores). Isotonic calibration (5-fold cross-fitting): **ECE 0.058 → 0.007**, Brier 0.041 → 0.034, AUC unchanged.
+
+### Learning curve
+
+Binary macro-F1 rises from 84.3 (1.6k reviews) to 89.1 (15.9k) and flattens near 12k. The last 4,000 reviews add only +0.2. More labels of the same kind will not help; better labels would.
+
+### What the model learned
+
+| Strongest positive | Coef | Strongest negative | Coef |
+|---|---|---|---|
+| love | 8.7 | disappointed | -9.0 |
+| little | 8.3 | not | -7.6 |
+| great | 7.6 | cheap | -7.2 |
+| perfect | 7.0 | unflattering | -7.2 |
+| comfortable | 7.0 | poor | -6.8 |
+| beautiful | 6.1 | huge | -6.6 |
+
+"little" looks odd but checks out: it appears in 16.6% of positive vs 5.7% of negative reviews, mostly in hedges ("a little bit", "a little big").
+
+### Error analysis
+
+- Overall 3-class error rate: **17%**. **39% of all errors** come from 3-star reviews; only 2% of errors flip between the two extremes.
+- Error rate by rating: 1★ 27%, 2★ 46%, 3★ 53%, 4★ 23%, 5★ 2%
+- Longer reviews fail more (11.2% for ≤30 words → 21.2% for 91+)
+- Contrast words (but, however): 22.5% error vs 8.7% without. Negation words: 21.5% vs 11.0%
+- Many errors are mixed content or arguably label noise (e.g., a complaint about delivery in a 5-star review)
+
+**Three fixes that did not help:** negation tagging (65.3 → 65.5), clause-level scoring (65.3 → 65.2), grid search over n-gram range / `min_df` / `C` (89.2 → 89.1). The ceiling looks like label noise, not model capacity.
+
+### Topic model (NMF, K=8)
+
+NPMI coherence is flat from K=6 to 14, so **K=8 was chosen for interpretability**, not by metric. NMF coherence **0.076 vs 0.055 for LDA**. Stability is moderate: top-word overlap (Jaccard) of **0.74** across 5 seeds and **0.73** across bootstrap resamples.
+
+| NPMI coherence by K | 4 | 6 | 8 | 10 | 12 | 14 |
+|---|---|---|---|---|---|---|
+| NMF | 0.065 | 0.076 | 0.076 | 0.070 | 0.073 | 0.078 |
+
+| Topic (manual label) | Top words | Reviews | Avg stars | Negative |
+|---|---|---|---|---|
+| General fabric and look | like, just, fabric, look, really | 6,551 | 3.70 | 19.3% |
+| Casual tops | shirt, cute, super, comfy, little | 1,881 | 4.10 | 11.1% |
+| Sweaters and coats | sweater, soft, warm, cozy, sleeves | 1,560 | 4.28 | 9.4% |
+| Sizing and fit | size, small, large, runs, medium | 2,042 | 4.12 | 9.1% |
+| Dresses | dress, perfect, flattering, summer, wear | 3,561 | 4.27 | 8.7% |
+| Skirts and blouses | beautiful, skirt, gorgeous, color, blouse | 1,627 | 4.39 | 6.7% |
+| Pants and jeans | great, jeans, pants, perfect, fit | 3,020 | 4.66 | 2.8% |
+| Color and softness | love, comfortable, colors, soft, fits | 2,399 | 4.70 | 2.6% |
+
+Average negative share across all reviews: 10.5%.
+
+### Aspect sentiment
+
+The binary model scores ~106,000 sentences; a sentence counts toward an aspect if it contains one of the aspect's keywords.
+
+| Aspect | Negative sentences |
 |---|---|
-| NMF | – |
-| LDA | – |
+| Price | 40.5% |
+| Fabric and quality | 31.6% |
+| Look and style | 20.9% |
+| Length | 18.6% |
+| Fit and size | 18.2% |
+| Color | 10.8% |
 
-Seed stability: `–` · Bootstrap stability: `–`
+Price is rare (9% of reviews) but harsh. Fit is mentioned in 63% of reviews and only 18.2% negative. Keyword overlap makes these figures approximate.
 
-**Discovered topics (K=8):** `[add topic labels and top words]`
+### Business takeaways
+
+- **Fabric and quality** are over-represented in complaints; fit is not
+- **20 items** hold 19% of negative reviews with 11% of reviews: inspect these first
+- Hidden unhappy reviews (79) plus negative-leaning 3-star reviews (844) grow the follow-up queue by 44%
 
 ---
 
-## Known Limitations
+## Limitations
 
-- Ablation variants are scored on the held-out test set. For strict model selection, choose on cross-validation and report test once.
-- `class_weight='balanced'` shifts predicted probabilities, so raw ECE is not directly comparable to an unweighted model.
-- NPMI is computed on the training corpus (intrinsic coherence), and `max_df=0.4` can inflate it.
-- Binary and 3-class results use different test splits, so they are not directly comparable.
-- Stability uses one-directional best-match Jaccard (reference → candidate).
+- Labels are star ratings with no human gold standard
+- Aspect scores use keywords and a model trained on whole reviews
+- Topic words overlap only 0.74 across seeds, and K=8 is not metric-driven
+- Ablation variants and models are compared on the same held-out test set; for strict model selection, choose on cross-validation and report test once
+- Recurrent networks and transformers were not tested
+- One retailer, one split, one time period
 
-## Future Work
+## Next Steps
 
-- Cross-validated model selection and nested evaluation
-- Transformer baselines (e.g., DistilBERT) for comparison
-- Aspect-based sentiment linking topics to ratings
-- BERTopic comparison against NMF/LDA
+- Hand-label ~200 reviews to measure label noise and annotator agreement
+- Fine-tune a pretrained transformer and test the gap
+- Train a BiLSTM or CNN to complete the neural comparison
+- Replace keyword aspects with a trained aspect-based model
+- Deploy with isotonic-calibrated probabilities and monitor drift
 
 ---
 
